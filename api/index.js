@@ -38,7 +38,7 @@ export default async function handler(req, res) {
   // Method 0: Check query string (set by vercel.json routes)
   const queryPath = req.query?.path;
   if (queryPath) {
-    fullPath = '/' + queryPath.replace(/^\/+/, '');
+    fullPath = queryPath;  // Already has leading slash from vercel.json
   }
 
   // Health check
