@@ -32,34 +32,54 @@ export default async function handler(req, res) {
   }
 
   // Parse path from URL - extract pathname
-  // Vercel serverless: try req.nextUrl first (Next.js style), then fall back
-  // Also check Vercel headers for original route
+  // Vercel serverless: Vercel rewrites pass original path via headers
   let fullPath = '/';
 
-  // Method 1: req.nextUrl (Next.js style)
-  if (req.nextUrl && req.nextUrl.pathname) {
-    fullPath = req.nextUrl.pathname;
-  }
-  // Method 2: req.url
-  else if (req.url) {
-    const urlStr = req.url;
-    // Skip if it's the function path itself (rewrite artifact)
-    if (!urlStr.includes('/api/index.js')) {
-      if (urlStr.startsWith('http')) {
-        try {
-          const parsed = new URL(urlStr);
-          fullPath = parsed.pathname;
-        } catch {
-          fullPath = urlStr.split('?')[0] || '/';
-        }
-      } else {
-        fullPath = urlStr.split('?')[0] || '/';
-      }
+  // Method 1: Check x-vercel-forwarded-url header (original URL before rewrite)
+  const forwardedUrl = req.headers?.['x-vercel-forwarded-url'];
+  if (forwardedUrl) {
+    try {
+      const parsed = new URL(forwardedUrl);
+      fullPath = parsed.pathname;
+    } catch {
+      fullPath = forwardedUrl.split('?')[0] || '/';
     }
   }
-  // Method 3: Vercel route headers (for rewrites)
+
+  // Method 2: Check referer header (often contains original URL)
+  const referer = req.headers?.referer;
+  if (referer && fullPath === '/') {
+    try {
+      const parsed = new URL(referer);
+      fullPath = parsed.pathname;
+    } catch {
+      // ignore
+    }
+  }
+
+  // Method 3: req.nextUrl (Next.js style)
+  if (req.nextUrl && req.nextUrl.pathname && req.nextUrl.pathname !== '/api/index.js') {
+    fullPath = req.nextUrl.pathname;
+  }
+
+  // Method 4: req.url (but skip if it's the rewrite artifact)
+  if (req.url && req.url !== '/api/index.js' && fullPath === '/') {
+    const urlStr = req.url;
+    if (urlStr.startsWith('http')) {
+      try {
+        const parsed = new URL(urlStr);
+        fullPath = parsed.pathname;
+      } catch {
+        fullPath = urlStr.split('?')[0] || '/';
+      }
+    } else {
+      fullPath = urlStr.split('?')[0] || '/';
+    }
+  }
+
+  // Method 5: Vercel route params header (for dynamic routes)
   const vercelRouteParams = req.headers?.['x-now-route-params'];
-  if (vercelRouteParams) {
+  if (vercelRouteParams && fullPath === '/') {
     try {
       const params = JSON.parse(vercelRouteParams);
       if (params.path1) {
@@ -84,7 +104,9 @@ export default async function handler(req, res) {
       hasNextUrl: !!req.nextUrl,
       nextUrlPathname: req.nextUrl?.pathname,
       query: req.query,
-      headers: Object.keys(req.headers || {}),
+      allHeaders: req.headers,
+      vercelForwardedUrl: req.headers?.['x-vercel-forwarded-url'],
+      referer: req.headers?.referer,
       vercelRouteParams: req.headers?.['x-now-route-params']
     });
   }
