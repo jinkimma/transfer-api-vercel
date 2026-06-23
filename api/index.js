@@ -1,5 +1,4 @@
 // Vercel Serverless Function - API Gateway for unlimited.surf
-// Adapter layer for Cloudflare Worker → Vercel
 
 const UNLIMITED_SURF_API_KEY = process.env.UNLIMITED_SURF_API_KEY || 'ua_c1tpKRkd4A-fB-f0Dr-lj8Wa-arSKQID';
 const UPSTREAM_BASE = 'https://unlimited.surf';
@@ -31,21 +30,33 @@ export default async function handler(req, res) {
     return res.status(200).end();
   }
 
-  // Parse path from URL - Vercel provides req.url with the full path
+  // Parse path from URL - handle multiple Vercel runtime environments
   let fullPath = '/';
 
-  // Method 1: Use req.nextUrl pathname if available (Vercel Edge)
-  if (req.nextUrl?.pathname) {
-    fullPath = req.nextUrl.pathname;
-  }
-  // Method 2: Extract from req.url directly
-  else if (req.url) {
-    const url = new URL(req.url, 'https://placeholder.com');
-    fullPath = url.pathname;
-  }
-  // Method 3: Fallback to query string
-  else if (req.query?.path) {
-    fullPath = req.query.path;
+  try {
+    // Vercel Edge Runtime
+    if (req.nextUrl?.pathname) {
+      fullPath = req.nextUrl.pathname;
+    }
+    // Vercel Node.js Runtime / standard serverless
+    else if (req.url) {
+      // req.url could be full URL or just path
+      try {
+        const url = new URL(req.url, 'https://placeholder.com');
+        fullPath = url.pathname;
+      } catch {
+        // If URL parsing fails, use req.url as-is if it starts with /
+        fullPath = req.url.startsWith('/') ? req.url : '/' + req.url;
+      }
+    }
+    // Alternative: parse from query
+    else if (req.query?.path) {
+      fullPath = req.query.path;
+    }
+  } catch (e) {
+    console.error('Path parsing error:', e);
+    // Fallback to root
+    fullPath = '/';
   }
 
   // Health check
