@@ -31,8 +31,9 @@ export default async function handler(req, res) {
     return res.status(200).end();
   }
 
-  const path = req.query.path || '';
-  const fullPath = path ? `/${path}` : '/';
+  // Parse path from URL - Vercel passes full path
+  const url = new URL(req.url, 'https://' + (req.headers.host || 'transfer-api-seven.vercel.app'));
+  const fullPath = url.pathname;
 
   // Health check
   if (fullPath === '/health' || fullPath === '/') {
