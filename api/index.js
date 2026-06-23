@@ -262,7 +262,8 @@ async function handleResponses(req, res) {
       stream: stream
     };
 
-    const upstreamRes = await fetch(`${UPSTREAM_BASE}/v1/responses`, {
+    // Call upstream /api/chat (same as handleChatCompletions)
+    const upstreamRes = await fetch(`${UPSTREAM_BASE}/api/chat`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${UNLIMITED_SURF_API_KEY}`,
@@ -386,24 +387,24 @@ async function handleMessages(req, res) {
   try {
     const body = req.body || {};
     let model = body.model || 'gateway-gpt-5-5';
+    const messages = body.messages || [];
 
     const upstreamModel = MODEL_MAP[model] || model;
-    const requestBody = {
-      ...body,
-      model: upstreamModel
-    };
 
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
 
-    const upstreamRes = await fetch(`${UPSTREAM_BASE}/v1/messages`, {
+    // Convert messages to prompt
+    const prompt = messages.map(m => `${m.role}: ${m.content}`).join('\n');
+
+    const upstreamRes = await fetch(`${UPSTREAM_BASE}/api/chat`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${UNLIMITED_SURF_API_KEY}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(requestBody),
+      body: JSON.stringify({ model: upstreamModel, prompt, stream: true }),
     });
 
     if (!upstreamRes.ok) {
