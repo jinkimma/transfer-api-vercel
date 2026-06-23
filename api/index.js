@@ -32,13 +32,19 @@ export default async function handler(req, res) {
   }
 
   // Parse path from URL - extract pathname
-  // Vercel serverless: Vercel rewrites pass original path via query string or headers
+  // Vercel rewrites pass original path via headers
   let fullPath = '/';
 
-  // Method 0: Check query string (set by vercel.json routes)
+  // Method 1: Check x-original-path header (set by vercel.json routes)
+  const headerPath = req.headers?.['x-original-path'];
+  if (headerPath) {
+    fullPath = headerPath;  // Has leading slash from vercel.json
+  }
+
+  // Method 2: Fallback to query string (for debugging)
   const queryPath = req.query?.path;
-  if (queryPath) {
-    fullPath = queryPath;  // Already has leading slash from vercel.json
+  if (queryPath && !fullPath) {
+    fullPath = queryPath;
   }
 
   // Health check
@@ -47,7 +53,7 @@ export default async function handler(req, res) {
   }
 
   // Debug endpoint
-  if (fullPath === '/debug') {
+  if (fullPath === '/debug' || fullPath === '/v1/debug') {
     return res.status(200).json({
       url: req.url,
       fullPath: fullPath,

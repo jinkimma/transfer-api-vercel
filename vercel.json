@@ -9,15 +9,24 @@
   "routes": [
     {
       "src": "/v1/(.*)",
-      "dest": "/api/index.js?path=/v1/$1"
+      "headers": {
+        "x-original-path": "/v1/$1"
+      },
+      "dest": "/api/index.js"
     },
     {
       "src": "/api/(.*)",
-      "dest": "/api/index.js?path=/api/$1"
+      "headers": {
+        "x-original-path": "/api/$1"
+      },
+      "dest": "/api/index.js"
     },
     {
       "src": "/(.*)",
-      "dest": "/api/index.js?path=/$1"
+      "headers": {
+        "x-original-path": "/$1"
+      },
+      "dest": "/api/index.js"
     }
   ]
 }
