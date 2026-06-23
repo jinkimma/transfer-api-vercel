@@ -4,15 +4,15 @@
 const UNLIMITED_SURF_API_KEY = process.env.UNLIMITED_SURF_API_KEY || 'ua_c1tpKRkd4A-fB-f0Dr-lj8Wa-arSKQID';
 const UPSTREAM_BASE = 'https://unlimited.surf';
 
-// Model mapping
+// Model mapping - preserve gateway prefix for upstream
 const MODEL_MAP = {
-  'gateway-gpt-5-5': 'gpt-5-5',
-  'gateway-gpt-5': 'gpt-5',
-  'gateway-gpt-4o': 'gpt-4o',
-  'gateway-gpt-5-mini': 'gpt-5-mini',
-  'gateway-gpt-o3': 'gpt-o3',
-  'gateway-claude-opus-4-7': 'claude-opus-4-7',
-  'gateway-claude-opus-4-8': 'claude-opus-4-8',
+  'gateway-gpt-5-5': 'gateway-gpt-5-5',
+  'gateway-gpt-5': 'gateway-gpt-5',
+  'gateway-gpt-4o': 'gateway-gpt-4o',
+  'gateway-gpt-5-mini': 'gateway-gpt-5-mini',
+  'gateway-gpt-o3': 'gateway-gpt-o3',
+  'gateway-claude-opus-4-7': 'gateway-claude-opus-4-7',
+  'gateway-claude-opus-4-8': 'gateway-claude-opus-4-8',
 };
 
 // Reverse map for responses
@@ -95,27 +95,29 @@ async function handleChatCompletions(req, res) {
   try {
     const body = req.body || {};
     let model = body.model || 'gateway-gpt-5-5';
+    const messages = body.messages || [];
+    const stream = body.stream !== false;
 
     // Map model name
     const upstreamModel = MODEL_MAP[model] || model;
-    const requestBody = {
-      ...body,
-      model: upstreamModel
-    };
 
-    // Build SSE stream
+    // Convert messages to prompt for upstream
+    const prompt = messages.map(m => `${m.role}: ${m.content}`).join('\n');
+
+    // Set headers
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
     res.setHeader('X-Accel-Buffering', 'no');
 
-    const upstreamRes = await fetch(`${UPSTREAM_BASE}/v1/chat/completions`, {
+    // Call upstream with correct endpoint and format
+    const upstreamRes = await fetch(`${UPSTREAM_BASE}/api/chat`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${UNLIMITED_SURF_API_KEY}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(requestBody),
+      body: JSON.stringify({ model: upstreamModel, prompt, stream }),
     });
 
     if (!upstreamRes.ok) {
@@ -123,7 +125,7 @@ async function handleChatCompletions(req, res) {
       return res.status(upstreamRes.status).json({ error: { message: errorText } });
     }
 
-    // Stream the response
+    // Stream the response - convert unlimited.surf format to OpenAI format
     const reader = upstreamRes.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
@@ -138,25 +140,50 @@ async function handleChatCompletions(req, res) {
 
       for (const line of lines) {
         if (line.trim()) {
-          // Map model name back in the stream
-          let processedLine = line;
-          for (const [key, value] of Object.entries(REVERSE_MODEL_MAP)) {
-            processedLine = processedLine.replace(new RegExp(`"model":"${value}"`, 'g'), `"model":"${key}"`);
+          // Remove SSE prefix
+          let data = line.replace(/^data: /, '');
+
+          try {
+            const parsed = JSON.parse(data);
+
+            // Convert to OpenAI chat format
+            if (parsed.delta !== undefined) {
+              const chunk = {
+                id: `chatcmpl_${Date.now()}`,
+                object: 'chat.completion.chunk',
+                created: Math.floor(Date.now() / 1000),
+                model: model,
+                choices: [{
+                  index: 0,
+                  delta: { content: parsed.delta },
+                  finish_reason: null
+                }]
+              };
+              res.write(`data: ${JSON.stringify(chunk)}\n\n`);
+            }
+
+            if (parsed.finish || parsed.done) {
+              const doneChunk = {
+                id: `chatcmpl_${Date.now()}`,
+                object: 'chat.completion.chunk',
+                created: Math.floor(Date.now() / 1000),
+                model: model,
+                choices: [{
+                  index: 0,
+                  delta: {},
+                  finish_reason: 'stop'
+                }]
+              };
+              res.write(`data: ${JSON.stringify(doneChunk)}\n\n`);
+              res.write('data: [DONE]\n\n');
+            }
+          } catch (e) {
+            // Skip malformed JSON
           }
-          res.write(`data: ${processedLine}\n\n`);
         }
       }
     }
 
-    if (buffer.trim()) {
-      let processedLine = buffer;
-      for (const [key, value] of Object.entries(REVERSE_MODEL_MAP)) {
-        processedLine = processedLine.replace(new RegExp(`"model":"${value}"`, 'g'), `"model":"${key}"`);
-      }
-      res.write(`data: ${processedLine}\n\n`);
-    }
-
-    res.write('data: [DONE]\n\n');
     res.end();
   } catch (error) {
     console.error('Chat completions error:', error);
