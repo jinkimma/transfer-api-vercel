@@ -31,13 +31,29 @@ export default async function handler(req, res) {
     return res.status(200).end();
   }
 
-  // Parse path from URL - extract pathname from full URL
-  const fullUrl = req.url || '/';
-  const fullPath = fullUrl.split('?')[0] || '/';
+  // Parse path from URL - extract pathname
+  // Vercel serverless: try req.nextUrl first (Next.js style), then fall back
+  let fullPath = '/';
+  if (req.nextUrl && req.nextUrl.pathname) {
+    fullPath = req.nextUrl.pathname;
+  } else if (req.url) {
+    const urlStr = req.url;
+    // Handle full URL like 'https://host/path' or just '/path'
+    if (urlStr.startsWith('http')) {
+      try {
+        const parsed = new URL(urlStr);
+        fullPath = parsed.pathname;
+      } catch {
+        fullPath = urlStr.split('?')[0] || '/';
+      }
+    } else {
+      fullPath = urlStr.split('?')[0] || '/';
+    }
+  }
 
   // Health check
   if (fullPath === '/health' || fullPath === '/') {
-    return res.status(200).json({ ok: true, platform: 'vercel', debug: { url: req.url, fullPath: fullPath, query: req.query } });
+    return res.status(200).json({ ok: true, platform: 'vercel' });
   }
 
   // Debug endpoint
@@ -46,7 +62,10 @@ export default async function handler(req, res) {
       url: req.url,
       fullPath: fullPath,
       method: req.method,
-      query: req.query
+      hasNextUrl: !!req.nextUrl,
+      nextUrlPathname: req.nextUrl?.pathname,
+      query: req.query,
+      headers: Object.keys(req.headers || {})
     });
   }
 
