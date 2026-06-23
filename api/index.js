@@ -32,62 +32,13 @@ export default async function handler(req, res) {
   }
 
   // Parse path from URL - extract pathname
-  // Vercel serverless: Vercel rewrites pass original path via headers
+  // Vercel serverless: Vercel rewrites pass original path via query string or headers
   let fullPath = '/';
 
-  // Method 1: Check x-vercel-forwarded-url header (original URL before rewrite)
-  const forwardedUrl = req.headers?.['x-vercel-forwarded-url'];
-  if (forwardedUrl) {
-    try {
-      const parsed = new URL(forwardedUrl);
-      fullPath = parsed.pathname;
-    } catch {
-      fullPath = forwardedUrl.split('?')[0] || '/';
-    }
-  }
-
-  // Method 2: Check referer header (often contains original URL)
-  const referer = req.headers?.referer;
-  if (referer && fullPath === '/') {
-    try {
-      const parsed = new URL(referer);
-      fullPath = parsed.pathname;
-    } catch {
-      // ignore
-    }
-  }
-
-  // Method 3: req.nextUrl (Next.js style)
-  if (req.nextUrl && req.nextUrl.pathname && req.nextUrl.pathname !== '/api/index.js') {
-    fullPath = req.nextUrl.pathname;
-  }
-
-  // Method 4: req.url (but skip if it's the rewrite artifact)
-  if (req.url && req.url !== '/api/index.js' && fullPath === '/') {
-    const urlStr = req.url;
-    if (urlStr.startsWith('http')) {
-      try {
-        const parsed = new URL(urlStr);
-        fullPath = parsed.pathname;
-      } catch {
-        fullPath = urlStr.split('?')[0] || '/';
-      }
-    } else {
-      fullPath = urlStr.split('?')[0] || '/';
-    }
-  }
-
-  // Method 5: Vercel route params header (for dynamic routes)
-  const vercelRouteParams = req.headers?.['x-now-route-params'];
-  if (vercelRouteParams && fullPath === '/') {
-    try {
-      const params = JSON.parse(vercelRouteParams);
-      if (params.path1) {
-        fullPath = '/' + params.path1;
-      }
-    } catch {
-      // ignore parse errors
-    }
+  // Method 0: Check query string (set by vercel.json routes)
+  const queryPath = req.query?.path;
+  if (queryPath) {
+    fullPath = '/' + queryPath.replace(/^\/+/, '');
   }
 
   // Health check
