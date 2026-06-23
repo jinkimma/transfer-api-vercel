@@ -373,6 +373,8 @@ async function openAIFileUpload(request, env) {
 }
 
 function chooseUnlimitedRoute(body) {
+  // 支持 body.model 为数组 (例如 ["gateway-gpt-5-5", "gateway-gpt-4o"])
+  if (Array.isArray(body.model) && body.model.length >= 2) return "/api/merge";
   if (body.models && Array.isArray(body.models) && body.models.length >= 2) return "/api/merge";
   if (body.merge || body.merge_ai) return "/api/merge";
   if (body.query || body.web_search || body.web_search_options || hasWebSearchTool(body.tools)) return "/api/search";
@@ -391,12 +393,14 @@ function buildUnlimitedPayload(body, route) {
   const message = body.message || messagesToText(body.messages) || inputToText(body.input) || body.prompt || "";
   const payload = {
     message,
-    model: mapUpstreamModel(body.model),
+    model: Array.isArray(body.model) ? body.model[0] : mapUpstreamModel(body.model),
     effort: body.effort || reasoningEffort(body),
   };
 
   if (route === "/api/merge") {
-    payload.models = Array.isArray(body.models) && body.models.length ? body.models.map(mapUpstreamModel) : undefined;
+    // 支持 body.models 或 body.model 数组
+    const models = body.models || (Array.isArray(body.model) ? body.model : null);
+    payload.models = models && models.length ? models.map(mapUpstreamModel) : undefined;
   }
 
   return payload;
@@ -431,9 +435,12 @@ function responsesToChatBody(body, fallbackModel) {
   const inputText = inputToText(body.input);
   if (inputText) messages.push({ role: "user", content: inputText });
 
+  // 保留原始 model（可能是数组，用于 merge）
+  const model = body.model;
+
   return {
     ...body,
-    model: body.model || fallbackModel,
+    model,
     messages,
     stream: body.stream,
   };
