@@ -7,8 +7,5 @@
     "api/test.js": {
       "runtime": "@vercel/node"
     }
-  },
-  "rewrites": [
-    { "source": "/(.*)", "destination": "/api/index" }
-  ]
+  }
 }

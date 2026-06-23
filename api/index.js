@@ -29,38 +29,18 @@ module.exports = async function handler(req, res) {
     return res.status(200).end();
   }
 
-  // Parse path from URL - handle multiple Vercel runtime environments
+  // Extract path from request
   let fullPath = '/';
 
-  try {
-    // Vercel Edge Runtime
-    if (req.nextUrl?.pathname) {
-      fullPath = req.nextUrl.pathname;
-    }
-    // Vercel Node.js Runtime / standard serverless
-    else if (req.url) {
-      // req.url could be full URL or just path
-      try {
-        const url = new URL(req.url, 'https://placeholder.com');
-        fullPath = url.pathname;
-      } catch {
-        // If URL parsing fails, use req.url as-is if it starts with /
-        fullPath = req.url.startsWith('/') ? req.url : '/' + req.url;
-      }
-    }
-    // Alternative: parse from query
-    else if (req.query?.path) {
-      fullPath = req.query.path;
-    }
-  } catch (e) {
-    console.error('Path parsing error:', e);
-    // Fallback to root
-    fullPath = '/';
+  // Try different ways to get path in various Vercel environments
+  if (typeof req.url === 'string') {
+    // Node.js runtime: req.url is the path
+    fullPath = req.url.split('?')[0];
   }
 
   // Health check
-  if (fullPath === '/health' || fullPath === '/') {
-    return res.status(200).json({ ok: true, platform: 'vercel', v: '2' });
+  if (fullPath === '/health' || fullPath === '/' || fullPath === '/api') {
+    return res.status(200).json({ ok: true, platform: 'vercel', v: '3' });
   }
 
   // Debug endpoint
