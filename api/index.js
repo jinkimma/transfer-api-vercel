@@ -33,21 +33,40 @@ export default async function handler(req, res) {
 
   // Parse path from URL - extract pathname
   // Vercel serverless: try req.nextUrl first (Next.js style), then fall back
+  // Also check Vercel headers for original route
   let fullPath = '/';
+
+  // Method 1: req.nextUrl (Next.js style)
   if (req.nextUrl && req.nextUrl.pathname) {
     fullPath = req.nextUrl.pathname;
-  } else if (req.url) {
+  }
+  // Method 2: req.url
+  else if (req.url) {
     const urlStr = req.url;
-    // Handle full URL like 'https://host/path' or just '/path'
-    if (urlStr.startsWith('http')) {
-      try {
-        const parsed = new URL(urlStr);
-        fullPath = parsed.pathname;
-      } catch {
+    // Skip if it's the function path itself (rewrite artifact)
+    if (!urlStr.includes('/api/index.js')) {
+      if (urlStr.startsWith('http')) {
+        try {
+          const parsed = new URL(urlStr);
+          fullPath = parsed.pathname;
+        } catch {
+          fullPath = urlStr.split('?')[0] || '/';
+        }
+      } else {
         fullPath = urlStr.split('?')[0] || '/';
       }
-    } else {
-      fullPath = urlStr.split('?')[0] || '/';
+    }
+  }
+  // Method 3: Vercel route headers (for rewrites)
+  const vercelRouteParams = req.headers?.['x-now-route-params'];
+  if (vercelRouteParams) {
+    try {
+      const params = JSON.parse(vercelRouteParams);
+      if (params.path1) {
+        fullPath = '/' + params.path1;
+      }
+    } catch {
+      // ignore parse errors
     }
   }
 
@@ -65,7 +84,8 @@ export default async function handler(req, res) {
       hasNextUrl: !!req.nextUrl,
       nextUrlPathname: req.nextUrl?.pathname,
       query: req.query,
-      headers: Object.keys(req.headers || {})
+      headers: Object.keys(req.headers || {}),
+      vercelRouteParams: req.headers?.['x-now-route-params']
     });
   }
 
