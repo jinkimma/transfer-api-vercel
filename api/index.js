@@ -3,8 +3,6 @@
 
 const UNLIMITED_SURF_API_KEY = process.env.UNLIMITED_SURF_API_KEY || 'ua_c1tpKRkd4A-fB-f0Dr-lj8Wa-arSKQID';
 const UPSTREAM_BASE = 'https://unlimited.surf';
-
-// Model mapping - preserve gateway prefix for upstream
 const MODEL_MAP = {
   'gateway-gpt-5-5': 'gateway-gpt-5-5',
   'gateway-gpt-5': 'gateway-gpt-5',
@@ -21,7 +19,7 @@ for (const [key, value] of Object.entries(MODEL_MAP)) {
   REVERSE_MODEL_MAP[value] = key;
 }
 
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
   // CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
