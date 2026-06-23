@@ -43,7 +43,7 @@ export default async function handler(req, res) {
 
   // Health check
   if (fullPath === '/health' || fullPath === '/') {
-    return res.status(200).json({ ok: true, platform: 'vercel' });
+    return res.status(200).json({ ok: true, platform: 'vercel', v: '2' });
   }
 
   // Debug endpoint
