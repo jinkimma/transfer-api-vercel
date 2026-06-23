@@ -135,21 +135,76 @@ async function handleChatCompletions(req, res) {
   }
 }
 
+// Standard OpenAI Responses API format
+function createResponseObject(model, content, id = null) {
+  const responseId = id || `resp_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+  return {
+    id: responseId,
+    model: model,
+    created: Math.floor(Date.now() / 1000),
+    object: 'response',
+    status: 'completed',
+    output: [
+      {
+        id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
+        type: 'message',
+        role: 'assistant',
+        content: [
+          {
+            type: 'output_text',
+            text: content
+          }
+        ]
+      }
+    ]
+  };
+}
+
+function createStreamChunk(model, delta, index = 0) {
+  return {
+    id: `resp_${Date.now()}`,
+    model: model,
+    created: Math.floor(Date.now() / 1000),
+    object: 'response.created',
+    output: [
+      {
+        id: `msg_${index}`,
+        type: 'message',
+        role: 'assistant',
+        content: [
+          {
+            type: 'input_token',
+            text: delta
+          }
+        ]
+      }
+    ]
+  };
+}
+
 async function handleResponses(req, res) {
   try {
     const body = req.body || {};
     let model = body.model || 'gateway-gpt-5-5';
+    const messages = body.messages || [];
+    const stream = body.stream !== false;
 
     const upstreamModel = MODEL_MAP[model] || model;
-    const requestBody = {
-      ...body,
-      model: upstreamModel
-    };
 
-    res.setHeader('Content-Type', 'text/event-stream');
+    // Extract prompt from messages for upstream
+    const prompt = messages.map(m => `${m.role}: ${m.content}`).join('\n');
+
+    // Set headers
+    res.setHeader('Content-Type', stream ? 'text/event-stream' : 'application/json');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
     res.setHeader('X-Accel-Buffering', 'no');
+
+    const requestBody = {
+      model: upstreamModel,
+      prompt: prompt,
+      stream: stream
+    };
 
     const upstreamRes = await fetch(`${UPSTREAM_BASE}/v1/responses`, {
       method: 'POST',
@@ -162,34 +217,109 @@ async function handleResponses(req, res) {
 
     if (!upstreamRes.ok) {
       const errorText = await upstreamRes.text();
-      return res.status(upstreamRes.status).json({ error: { message: errorText } });
+      return res.status(upstreamRes.status).json({
+        error: {
+          message: errorText,
+          type: 'upstream_error'
+        }
+      });
     }
 
-    // Stream response
-    const reader = upstreamRes.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
+    if (stream) {
+      // Stream mode: convert SSE to OpenAI Responses streaming format
+      const reader = upstreamRes.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let outputIndex = 0;
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
 
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
 
-      for (const line of lines) {
-        if (line.trim()) {
-          let processedLine = line;
-          for (const [key, value] of Object.entries(REVERSE_MODEL_MAP)) {
-            processedLine = processedLine.replace(new RegExp(`"model":"${value}"`, 'g'), `"model":"${key}"`);
+        for (const line of lines) {
+          if (line.trim()) {
+            // Remove SSE prefix
+            let data = line.replace(/^data: /, '');
+
+            if (data === '[DONE]') {
+              res.write('event: done\ndata: [DONE]\n\n');
+              continue;
+            }
+
+            try {
+              const parsed = JSON.parse(data);
+              // Extract text from upstream response and format for OpenAI
+              let text = '';
+              if (parsed.choices && parsed.choices[0]?.message?.content) {
+                text = parsed.choices[0].message.content;
+              } else if (parsed.text) {
+                text = parsed.text;
+              } else if (typeof parsed === 'string') {
+                text = parsed;
+              }
+
+              if (text) {
+                const chunk = {
+                  id: `resp_${Date.now()}`,
+                  model: model,
+                  created: Math.floor(Date.now() / 1000),
+                  object: 'response.output_text.delta',
+                  output_index: outputIndex,
+                  output: {
+                    id: `msg_${outputIndex}`,
+                    type: 'message',
+                    role: 'assistant',
+                    content: [
+                      {
+                        type: 'output_text',
+                        text: text,
+                        annotations: []
+                      }
+                    ]
+                  }
+                };
+                res.write(`data: ${JSON.stringify(chunk)}\n\n`);
+                outputIndex++;
+              }
+            } catch (e) {
+              // Skip malformed JSON
+            }
           }
-          res.write(`${processedLine}\n`);
         }
       }
-    }
 
-    res.end();
+      // Send completion event
+      const completion = {
+        id: `resp_${Date.now()}`,
+        model: model,
+        created: Math.floor(Date.now() / 1000),
+        object: 'response.completed',
+        output: [],
+        status: 'completed'
+      };
+      res.write(`data: ${JSON.stringify(completion)}\n\n`);
+      res.end();
+    } else {
+      // Non-stream mode
+      const data = await upstreamRes.json();
+
+      // Extract content from upstream format
+      let content = '';
+      if (data.choices && data.choices[0]?.message?.content) {
+        content = data.choices[0].message.content;
+      } else if (data.text) {
+        content = data.text;
+      } else if (data.output?.text) {
+        content = data.output.text;
+      }
+
+      const response = createResponseObject(model, content, data.id);
+      res.json(response);
+    }
   } catch (error) {
     console.error('Responses error:', error);
     res.status(500).json({ error: { message: error.message } });
