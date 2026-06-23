@@ -31,13 +31,23 @@ export default async function handler(req, res) {
     return res.status(200).end();
   }
 
-  // Parse path from URL - Vercel passes full path
-  const url = new URL(req.url, 'https://' + (req.headers.host || 'transfer-api-seven.vercel.app'));
-  const fullPath = url.pathname;
+  // Parse path from URL - extract pathname from full URL
+  const fullUrl = req.url || '/';
+  const fullPath = fullUrl.split('?')[0] || '/';
 
   // Health check
   if (fullPath === '/health' || fullPath === '/') {
     return res.status(200).json({ ok: true, platform: 'vercel' });
+  }
+
+  // Debug endpoint
+  if (fullPath === '/debug') {
+    return res.status(200).json({
+      url: req.url,
+      fullPath: fullPath,
+      method: req.method,
+      query: req.query
+    });
   }
 
   // Chat completions proxy
