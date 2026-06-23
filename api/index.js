@@ -31,20 +31,21 @@ export default async function handler(req, res) {
     return res.status(200).end();
   }
 
-  // Parse path from URL - extract pathname
-  // Vercel rewrites pass original path via headers
+  // Parse path from URL - Vercel provides req.url with the full path
   let fullPath = '/';
 
-  // Method 1: Check x-original-path header (set by vercel.json routes)
-  const headerPath = req.headers?.['x-original-path'];
-  if (headerPath) {
-    fullPath = headerPath;  // Has leading slash from vercel.json
+  // Method 1: Use req.nextUrl pathname if available (Vercel Edge)
+  if (req.nextUrl?.pathname) {
+    fullPath = req.nextUrl.pathname;
   }
-
-  // Method 2: Fallback to query string (for debugging)
-  const queryPath = req.query?.path;
-  if (queryPath && !fullPath) {
-    fullPath = queryPath;
+  // Method 2: Extract from req.url directly
+  else if (req.url) {
+    const url = new URL(req.url, 'https://placeholder.com');
+    fullPath = url.pathname;
+  }
+  // Method 3: Fallback to query string
+  else if (req.query?.path) {
+    fullPath = req.query.path;
   }
 
   // Health check
@@ -61,10 +62,9 @@ export default async function handler(req, res) {
       hasNextUrl: !!req.nextUrl,
       nextUrlPathname: req.nextUrl?.pathname,
       query: req.query,
-      allHeaders: req.headers,
-      vercelForwardedUrl: req.headers?.['x-vercel-forwarded-url'],
-      referer: req.headers?.referer,
-      vercelRouteParams: req.headers?.['x-now-route-params']
+      allHeaders: Object.fromEntries(
+        Object.entries(req.headers || {}).map(([k, v]) => [k, typeof v === 'string' ? v.slice(0, 100) : v])
+      )
     });
   }
 
