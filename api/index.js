@@ -1,4 +1,5 @@
 // Vercel Serverless Function - API Gateway for unlimited.surf
+// GitHub: jinkimma/transfer-api-vercel
 
 const UNLIMITED_SURF_API_KEY = process.env.UNLIMITED_SURF_API_KEY || 'ua_c1tpKRkd4A-fB-f0Dr-lj8Wa-arSKQID';
 const UPSTREAM_BASE = 'https://unlimited.surf';
