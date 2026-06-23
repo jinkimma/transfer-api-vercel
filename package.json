@@ -3,10 +3,16 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=18.x"
+  },
   "scripts": {
     "check": "node --check src/worker.js",
     "dev": "wrangler dev",
     "deploy": "wrangler deploy"
+  },
+  "dependencies": {
+    "vercel": "*"
   },
   "devDependencies": {
     "wrangler": "^4.0.0"
