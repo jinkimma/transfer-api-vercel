@@ -242,39 +242,13 @@ async function handleResponses(req, res) {
   try {
     const body = req.body || {};
     let model = body.model || 'gateway-gpt-5-5';
+    const messages = body.messages || [];
     const stream = body.stream !== false;
 
-    // Support both OpenAI Responses API format (input) and Chat format (messages)
-    let prompt = '';
-
-    if (body.input) {
-      // OpenAI Responses API format with "input" field
-      if (typeof body.input === 'string') {
-        prompt = body.input;
-      } else if (Array.isArray(body.input)) {
-        // input: [{type: "text", text: "..."}]
-        prompt = body.input.map(item => item.text || item.content || '').join('\n');
-      } else if (typeof body.input === 'object' && body.input.text) {
-        prompt = body.input.text;
-      }
-    } else if (body.messages) {
-      // Legacy chat format with messages array
-      prompt = body.messages.map(m => `${m.role}: ${m.content}`).join('\n');
-    } else if (body.prompt) {
-      // Direct prompt field
-      prompt = body.prompt;
-    }
-
-    if (!prompt) {
-      return res.status(400).json({
-        error: {
-          message: 'Missing input: provide "input" (string or array), "messages" array, or "prompt"',
-          type: 'invalid_request_error'
-        }
-      });
-    }
-
     const upstreamModel = MODEL_MAP[model] || model;
+
+    // Extract prompt from messages for upstream
+    const prompt = messages.map(m => `${m.role}: ${m.content}`).join('\n');
 
     // Set headers
     res.setHeader('Content-Type', stream ? 'text/event-stream' : 'application/json');
@@ -288,8 +262,7 @@ async function handleResponses(req, res) {
       stream: stream
     };
 
-    // Call upstream /api/chat (same as handleChatCompletions)
-    const upstreamRes = await fetch(`${UPSTREAM_BASE}/api/chat`, {
+    const upstreamRes = await fetch(`${UPSTREAM_BASE}/v1/responses`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${UNLIMITED_SURF_API_KEY}`,
@@ -339,8 +312,6 @@ async function handleResponses(req, res) {
               let text = '';
               if (parsed.choices && parsed.choices[0]?.message?.content) {
                 text = parsed.choices[0].message.content;
-              } else if (parsed.delta) {
-                text = parsed.delta;
               } else if (parsed.text) {
                 text = parsed.text;
               } else if (typeof parsed === 'string') {
@@ -355,19 +326,20 @@ async function handleResponses(req, res) {
                   object: 'response.output_text.delta',
                   output_index: outputIndex,
                   output: {
-                    index: outputIndex,
-                    type: 'message',
                     id: `msg_${outputIndex}`,
+                    type: 'message',
                     role: 'assistant',
                     content: [
                       {
                         type: 'output_text',
-                        text: text
+                        text: text,
+                        annotations: []
                       }
                     ]
                   }
                 };
                 res.write(`data: ${JSON.stringify(chunk)}\n\n`);
+                outputIndex++;
               }
             } catch (e) {
               // Skip malformed JSON
@@ -382,20 +354,7 @@ async function handleResponses(req, res) {
         model: model,
         created: Math.floor(Date.now() / 1000),
         object: 'response.completed',
-        output: [
-          {
-            index: 0,
-            type: 'message',
-            id: `msg_0`,
-            role: 'assistant',
-            content: [
-              {
-                type: 'output_text',
-                text: ''
-              }
-            ]
-          }
-        ],
+        output: [],
         status: 'completed'
       };
       res.write(`data: ${JSON.stringify(completion)}\n\n`);
@@ -427,24 +386,24 @@ async function handleMessages(req, res) {
   try {
     const body = req.body || {};
     let model = body.model || 'gateway-gpt-5-5';
-    const messages = body.messages || [];
 
     const upstreamModel = MODEL_MAP[model] || model;
+    const requestBody = {
+      ...body,
+      model: upstreamModel
+    };
 
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
 
-    // Convert messages to prompt
-    const prompt = messages.map(m => `${m.role}: ${m.content}`).join('\n');
-
-    const upstreamRes = await fetch(`${UPSTREAM_BASE}/api/chat`, {
+    const upstreamRes = await fetch(`${UPSTREAM_BASE}/v1/messages`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${UNLIMITED_SURF_API_KEY}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ model: upstreamModel, prompt, stream: true }),
+      body: JSON.stringify(requestBody),
     });
 
     if (!upstreamRes.ok) {
