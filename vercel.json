@@ -3,6 +3,9 @@
   "functions": {
     "api/index.js": {
       "runtime": "@vercel/node"
+    },
+    "api/test.js": {
+      "runtime": "@vercel/node"
     }
   },
   "rewrites": [
